@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from jsonpath_ng import parse as parse_jsonpath
+from jsonpath_ng.parser import parse as parse_jsonpath
 
 from meridian.grading.graders.base import GraderError, failed, passed, resolve
 from meridian.models.run import AssertionResult

@@ -9,10 +9,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: nothing in CI needs to write to the repository.
+permissions:
+  contents: read
+
 jobs:
   static:
     name: lint + types + unit (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +41,7 @@ jobs:
   web:
     name: web (types, tests, build)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -57,6 +63,7 @@ jobs:
   package:
     name: package (wheel installs and works outside the repo)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -91,6 +98,7 @@ jobs:
   integration:
     name: integration (docker)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: static
     services:
       postgres:
@@ -126,6 +134,7 @@ jobs:
   e2e:
     name: e2e (run, replay, gate)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: integration
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     steps:
