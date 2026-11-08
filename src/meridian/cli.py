@@ -62,6 +62,20 @@ def _report_validation_failure(exc: SuiteValidationError) -> None:
         err(f"  {'':<{width}}  └─ {issue.message}")
 
 
+def _write_drop_reasons(path: Path, reasons: dict[str, str]) -> None:
+    """Leave each build failure beside the task it removed, not only on the terminal."""
+    sections = [
+        "# Dropped tasks",
+        "",
+        "These tasks failed to build and were moved out of the suite by "
+        "`meridian suite build-images --drop-failed`. The tail of each build log:",
+        "",
+    ]
+    for slug in sorted(reasons):
+        sections += [f"## {slug}", "", "```text", reasons[slug].rstrip(), "```", ""]
+    path.write_text("\n".join(sections), encoding="utf-8")
+
+
 @app.command()
 def version() -> None:
     """Print the harness version that will be written into run manifests."""
@@ -107,29 +121,28 @@ def suite_build_images(
         err(f"cannot reach Docker: {exc}")
         raise typer.Exit(exit_codes.HARNESS_ERROR) from exc
 
-    failures = 0
-    failed_slugs: list[str] = []
+    failures: dict[str, str] = {}
     for task in todo:
         try:
             digest = build_snapshot(
                 client, root / "images" / task.slug, tag=f"meridian-{suite.slug}-{task.slug}:dev"
             )
         except SnapshotBuildError as exc:
-            failures += 1
-            failed_slugs.append(task.slug)
+            failures[task.slug] = str(exc)
             err(f"  FAILED  {task.slug}: {exc}")
             continue
         rewrite_task_snapshot(root / "tasks" / f"{task.slug}.yaml", digest)
         out(f"{task.slug} {digest}")
-    err(f"built {len(todo) - failures} of {len(todo)} image(s)")
-    if drop_failed and failed_slugs:
+    err(f"built {len(todo) - len(failures)} of {len(todo)} image(s)")
+    if drop_failed and failures:
         dropped = root / "dropped"
         dropped.mkdir(exist_ok=True)
-        for slug in failed_slugs:
+        for slug in failures:
             (root / "tasks" / f"{slug}.yaml").rename(dropped / f"{slug}.yaml")
-        names = ", ".join(failed_slugs)
-        out(f"dropped {len(failed_slugs)} task(s) whose image did not build: {names}")
-        if failures == len(todo):
+        _write_drop_reasons(dropped / "REASONS.md", failures)
+        names = ", ".join(sorted(failures))
+        out(f"dropped {len(failures)} task(s) whose image did not build: {names}")
+        if len(failures) == len(todo):
             raise typer.Exit(exit_codes.HARNESS_ERROR)
         return
     if failures:
