@@ -23,6 +23,16 @@ from meridian.suites.validate import (
 
 SUITE_FILE = "suite.yaml"
 TASKS_DIR = "tasks"
+HARBOR_TASK_FILE = "task.toml"
+
+
+def _looks_like_harbor_tasks(root: Path) -> bool:
+    """Harbor keeps task.toml at the dataset root, one level down, or two."""
+    return any(
+        candidate.is_file()
+        for pattern in (HARBOR_TASK_FILE, f"*/{HARBOR_TASK_FILE}", f"*/*/{HARBOR_TASK_FILE}")
+        for candidate in root.glob(pattern)
+    )
 
 
 def _read_yaml(
@@ -73,12 +83,15 @@ def load_suite(path: str | Path) -> Suite:
 
     suite_file = root / SUITE_FILE
     if not suite_file.is_file():
+        message = f"no {SUITE_FILE} in {root}"
+        if _looks_like_harbor_tasks(root):
+            message += "; this looks like Harbor tasks — run `meridian import-harbor` first"
         raise SuiteValidationError(
             [
                 ValidationIssue(
                     code="missing_suite_file",
                     file=SUITE_FILE,
-                    message=f"no {SUITE_FILE} in {root}",
+                    message=message,
                 )
             ]
         )

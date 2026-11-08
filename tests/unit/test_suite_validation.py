@@ -80,6 +80,26 @@ def test_missing_suite_file_is_its_own_code(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_a_harbor_dataset_suggests_importing_it_first(tmp_path: Path) -> None:
+    """Pointing `run` at a Harbor dataset should name the command that converts it."""
+    task = tmp_path / "some-harbor-task"
+    task.mkdir()
+    (task / "task.toml").write_text("", encoding="utf-8")
+    with pytest.raises(SuiteValidationError) as excinfo:
+        load_suite(tmp_path)
+    assert excinfo.value.codes() == ["missing_suite_file"]
+    assert "import-harbor" in str(excinfo.value)
+
+
+@pytest.mark.unit
+def test_a_plain_directory_gets_no_harbor_hint(tmp_path: Path) -> None:
+    (tmp_path / "tasks").mkdir()
+    with pytest.raises(SuiteValidationError) as excinfo:
+        load_suite(tmp_path)
+    assert "import-harbor" not in str(excinfo.value)
+
+
+@pytest.mark.unit
 def test_malformed_yaml_is_reported_as_such(tmp_path: Path) -> None:
     shutil.copytree(FIXTURES / "_valid-control", tmp_path / "suite")
     (tmp_path / "suite" / "tasks" / "broken.yaml").write_text("slug: [unclosed\n")
