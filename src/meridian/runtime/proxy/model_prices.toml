@@ -1,0 +1,22 @@
+# Model prices, in micro-cents per million tokens as [input, output].
+#
+# Micro-cents keep the arithmetic in integers (see budget.py). Prices are
+# approximate list prices and explicitly not a billing system: the number
+# exists so a runaway agent stops, and so a run can report roughly what it
+# cost. Adding a model here is the whole change; no code edit is needed.
+
+[default]
+# Charged, with a warning, to a model this file does not list.
+input = 300_000_000
+output = 1_500_000_000
+
+[models]
+"claude-sonnet-5" = [300_000_000, 1_500_000_000]
+"claude-opus-5" = [1_500_000_000, 7_500_000_000]
+"claude-sonnet-4-5" = [300_000_000, 1_500_000_000]
+"claude-opus-4-5" = [500_000_000, 2_500_000_000]
+"claude-haiku-4-5" = [100_000_000, 500_000_000]
+"claude-haiku-4-5-20251001" = [100_000_000, 500_000_000]
+# Approximate Groq list prices, $/Mtok converted to micro-cents.
+"openai/gpt-oss-120b" = [15_000_000, 60_000_000]
+"openai/gpt-oss-20b" = [7_500_000, 30_000_000]

@@ -11,27 +11,81 @@ value that reaches a hashed structure must not be a float at all.
 
 from __future__ import annotations
 
+import logging
+import tomllib
 from dataclasses import dataclass, field
+from functools import lru_cache
+from importlib.resources import files
+from pathlib import Path
 
 MICROCENTS_PER_CENT = 1_000_000
 
-# Micro-cents per million tokens, input and output. Approximate and explicitly
-# not a billing system: the number exists so a runaway agent stops, and so a run
-# can report roughly what it cost.
-PRICE_TABLE_MICROCENTS_PER_MTOK: dict[str, tuple[int, int]] = {
-    "claude-sonnet-5": (300_000_000, 1_500_000_000),
-    "claude-opus-5": (1_500_000_000, 7_500_000_000),
-    "claude-haiku-4-5-20251001": (100_000_000, 500_000_000),
-    # Approximate Groq list prices, $/Mtok converted to micro-cents.
-    "openai/gpt-oss-120b": (15_000_000, 60_000_000),
-    "openai/gpt-oss-20b": (7_500_000, 30_000_000),
-}
-DEFAULT_PRICE_MICROCENTS_PER_MTOK = (300_000_000, 1_500_000_000)
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PriceBook:
+    """What one call costs, read from `model_prices.toml`.
+
+    Pairs are (input, output) micro-cents per million tokens. A model the book
+    does not list is charged the default price, and the ledger reports it.
+    """
+
+    default: tuple[int, int]
+    models: dict[str, tuple[int, int]]
+
+    @classmethod
+    def from_toml(cls, path: Path) -> PriceBook:
+        with path.open("rb") as handle:
+            document = tomllib.load(handle)
+        return _parse_prices(document, str(path))
+
+    def price_for(self, model: str) -> tuple[int, int]:
+        return self.models.get(model, self.default)
+
+
+def _amount(value: object, where: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{where} must be a non-negative integer number of micro-cents")
+    return value
+
+
+def _price_pair(value: object, where: str) -> tuple[int, int]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValueError(f"{where} must be [input, output] micro-cents per million tokens")
+    return _amount(value[0], f"{where} input"), _amount(value[1], f"{where} output")
+
+
+def _parse_prices(document: object, source: str) -> PriceBook:
+    if not isinstance(document, dict):
+        raise ValueError(f"{source}: expected a table with [default] and [models]")
+    default_raw = document.get("default")
+    if not isinstance(default_raw, dict):
+        raise ValueError(f"{source}: [default] must be a table with input and output")
+    default = (
+        _amount(default_raw.get("input"), f"{source}: default.input"),
+        _amount(default_raw.get("output"), f"{source}: default.output"),
+    )
+    models_raw = document.get("models", {})
+    if not isinstance(models_raw, dict):
+        raise ValueError(f"{source}: [models] must be a table of model = [input, output]")
+    models = {
+        name: _price_pair(value, f"{source}: models.{name}") for name, value in models_raw.items()
+    }
+    return PriceBook(default=default, models=models)
+
+
+@lru_cache(maxsize=1)
+def load_prices() -> PriceBook:
+    """The packaged price list, parsed once per process."""
+    resource = files("meridian.runtime.proxy").joinpath("model_prices.toml")
+    document = tomllib.loads(resource.read_text(encoding="utf-8"))
+    return _parse_prices(document, "model_prices.toml")
 
 
 def cost_microcents(model: str, input_tokens: int, output_tokens: int) -> int:
     """Integer micro-cents for one call."""
-    per_in, per_out = PRICE_TABLE_MICROCENTS_PER_MTOK.get(model, DEFAULT_PRICE_MICROCENTS_PER_MTOK)
+    per_in, per_out = load_prices().price_for(model)
     return (input_tokens * per_in + output_tokens * per_out) // 1_000_000
 
 
@@ -115,6 +169,9 @@ class BudgetLedger:
     # Which models were actually called. Recorded because the manifest must pin
     # the model, and the harness never chooses it -- the agent does.
     models: set[str] = field(default_factory=set)
+    # Models charged the default price this run, so each is reported once per
+    # run rather than once per call. A module global would silence the next run.
+    _unpriced: set[str] = field(default_factory=set, repr=False)
 
     def _key(self, task_slug: str, trial_index: int) -> str:
         return f"{task_slug}:{trial_index}"
@@ -203,6 +260,16 @@ class BudgetLedger:
     ) -> TrialUsage:
         usage = self.usage_for(task_slug, trial_index)
         self.models.add(model)
+        prices = load_prices()
+        if model not in prices.models and model not in self._unpriced:
+            self._unpriced.add(model)
+            logger.warning(
+                "No price for model %r; charging the default %d/%d micro-cents per million "
+                "input/output tokens. Add it to model_prices.toml.",
+                model,
+                prices.default[0],
+                prices.default[1],
+            )
         usage.input_tokens += input_tokens
         usage.output_tokens += output_tokens
         usage.microcents += cost_microcents(model, input_tokens, output_tokens)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import httpx
@@ -12,8 +13,10 @@ from meridian.config import ProxyMode, RunMode, load_config
 from meridian.runtime.proxy.budget import (
     BudgetExceeded,
     BudgetLedger,
+    PriceBook,
     TrialLimits,
     cost_microcents,
+    load_prices,
 )
 from meridian.runtime.proxy.cassette import (
     VOLATILE_REQUEST_FIELDS,
@@ -214,6 +217,48 @@ def test_costs_are_integers() -> None:
 
 def test_an_unknown_model_still_costs_something() -> None:
     assert cost_microcents("some-new-model", 1_000_000, 0) > 0
+
+
+def test_prices_come_from_a_data_file() -> None:
+    prices = load_prices()
+    assert prices.price_for("claude-sonnet-5") == (300_000_000, 1_500_000_000)
+    assert prices.price_for("some-new-model") == prices.default
+
+
+def test_a_new_price_needs_only_a_data_change(tmp_path: Path) -> None:
+    path = tmp_path / "model_prices.toml"
+    path.write_text(
+        '[default]\ninput = 100\noutput = 200\n\n[models]\n"brand-new-model" = [5, 25]\n',
+        encoding="utf-8",
+    )
+    prices = PriceBook.from_toml(path)
+    assert prices.price_for("brand-new-model") == (5, 25)
+    assert prices.price_for("unlisted-model") == (100, 200)
+
+
+def test_a_malformed_price_entry_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "model_prices.toml"
+    path.write_text(
+        '[default]\ninput = 100\noutput = 200\n\n[models]\n"half-a-price" = [5]\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"half-a-price"):
+        PriceBook.from_toml(path)
+
+
+def test_an_unpriced_model_is_reported_once_per_run(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ledger = BudgetLedger()
+    with caplog.at_level(logging.WARNING, logger="meridian.runtime.proxy.budget"):
+        ledger.charge("t", 0, model="mystery-model", input_tokens=1, output_tokens=1)
+        ledger.charge("t", 0, model="mystery-model", input_tokens=1, output_tokens=1)
+    assert sum("mystery-model" in record.getMessage() for record in caplog.records) == 1
+
+    # A new run has its own ledger, so it says it again rather than staying quiet.
+    with caplog.at_level(logging.WARNING, logger="meridian.runtime.proxy.budget"):
+        BudgetLedger().charge("t", 0, model="mystery-model", input_tokens=1, output_tokens=1)
+    assert sum("mystery-model" in record.getMessage() for record in caplog.records) == 2
 
 
 def test_token_ceiling_stops_the_next_call() -> None:
