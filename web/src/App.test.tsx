@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import sample from "../public/sample-run.json";
@@ -62,6 +62,23 @@ describe("App", () => {
     const file = new File(["{\"hello\": 1}"], "x.json", { type: "application/json" });
     await user.upload(input, file);
     expect(await screen.findByRole("alert")).toHaveTextContent(/not a Meridian run result/);
+  });
+
+  it("highlights a drop zone while a file is over it, not when it crosses a child", () => {
+    render(<App />);
+    const drop = screen.getByRole("button", { name: "Load a run" }).closest(".drop");
+    expect(drop).not.toBeNull();
+    const hint = screen.getAllByText(/or drop a result\.json here/)[0]!;
+
+    fireEvent.dragEnter(drop!);
+    fireEvent.dragEnter(hint);
+    expect(drop).toHaveClass("dragging");
+
+    fireEvent.dragLeave(hint);
+    expect(drop).toHaveClass("dragging");
+
+    fireEvent.dragLeave(drop!);
+    expect(drop).not.toHaveClass("dragging");
   });
 
   it("loads a real run file from disk", async () => {

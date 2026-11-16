@@ -238,6 +238,12 @@ tbody th {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  border-radius: 6px;
+}
+.drop.dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  background: var(--card);
 }
 @media (max-width: 560px) {
   .heat-label {
