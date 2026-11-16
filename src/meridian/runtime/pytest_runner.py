@@ -42,6 +42,28 @@ GRADING_TMPFS = {
 }
 
 
+def pytest_command(*, workdir: str, target: str, selector: str | None) -> str:
+    """The shell command that runs a pytest target inside the grading container."""
+    relative = target.removeprefix(workdir).lstrip("/") or "."
+    argument = f"{relative}::{selector}" if selector else relative
+    return f'tar -xf - -C / && cd "{workdir}" && python3 -m pytest -q "{argument}"'
+
+
+def script_command(*, workdir: str, script_path: str, reward_path: str, marker: str) -> str:
+    """The shell command that runs a benchmark verifier and prints its reward.
+
+    Harbor guarantees the reward directory exists; verifiers write to it without
+    creating it, so the sandbox must. The reward is wrapped in per-run markers so
+    agent output cannot be mistaken for it.
+    """
+    return (
+        f'tar -xf - -C / && mkdir -p "$(dirname "{reward_path}")" && cd "{workdir}" '
+        f'&& {{ if command -v bash >/dev/null 2>&1; then bash "{script_path}"; '
+        f'else sh "{script_path}"; fi; }}; code=$?; '
+        f'printf "\\n{marker}:%s:{marker}\\n" "$(cat "{reward_path}" 2>/dev/null)"; exit $code'
+    )
+
+
 class GradingContainerError(RuntimeError):
     """The grading container itself failed (not the verifier inside it)."""
 
@@ -182,9 +204,7 @@ class ContainerPytestRunner:
         )
 
     def __call__(self, state_dir: Path, target: str, selector: str | None) -> PytestOutcome:
-        relative = target.removeprefix(self._workdir).lstrip("/") or "."
-        argument = f"{relative}::{selector}" if selector else relative
-        command = f'tar -xf - -C / && cd "{self._workdir}" && python3 -m pytest -q "{argument}"'
+        command = pytest_command(workdir=self._workdir, target=target, selector=selector)
         try:
             exit_code, output = self._sandbox.run(state_dir, command, target)
         except GradingContainerError as exc:
@@ -227,13 +247,8 @@ class ContainerScriptRunner:
         timeout_seconds: int = GRADING_TIMEOUT_SECONDS,
     ) -> ScriptOutcome:
         marker = secrets.token_hex(16)
-        # Harbor guarantees the reward directory exists; verifiers write to it
-        # without creating it, so the sandbox must.
-        command = (
-            f'tar -xf - -C / && mkdir -p "$(dirname "{reward_path}")" && cd "{self._workdir}" '
-            f'&& {{ if command -v bash >/dev/null 2>&1; then bash "{script_path}"; '
-            f'else sh "{script_path}"; fi; }}; code=$?; '
-            f'printf "\\n{marker}:%s:{marker}\\n" "$(cat "{reward_path}" 2>/dev/null)"; exit $code'
+        command = script_command(
+            workdir=self._workdir, script_path=script_path, reward_path=reward_path, marker=marker
         )
         try:
             exit_code, output = self._sandbox.run(
