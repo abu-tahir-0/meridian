@@ -139,6 +139,52 @@ def test_a_credential_in_a_failure_detail_is_redacted() -> None:
     assert "«redacted»" in body
 
 
+def test_the_comment_names_the_harness_error_causes() -> None:
+    head = run(
+        tasks=(
+            TaskResult(
+                task_slug="flaky",
+                trials=(
+                    TrialResult(
+                        run_id="r",
+                        task_slug="flaky",
+                        trial_index=0,
+                        seed=0,
+                        outcome=Outcome.HARNESS_ERROR,
+                        detail="provider timed out",
+                        error_cause=ErrorCause.MODEL_PROVIDER,
+                    ),
+                    TrialResult(
+                        run_id="r",
+                        task_slug="flaky",
+                        trial_index=1,
+                        seed=1,
+                        outcome=Outcome.HARNESS_ERROR,
+                        detail="grader raised",
+                        error_cause=ErrorCause.GRADER,
+                    ),
+                    trial("flaky", 2, Outcome.PASS),
+                ),
+            ),
+        )
+    )
+    scores = per_task_scores(head)
+
+    body = render(
+        verdict=Verdict.INCONCLUSIVE,
+        reason="x",
+        flipped=flipped_tasks({}, scores),
+        head=head,
+        baseline_scores={},
+        head_scores=scores,
+        baseline_suite=None,
+        head_suite=suite_score(head),
+        baseline_run_id=None,
+    )
+
+    assert "harness errors 66.7% (grader: 1, model_provider: 1)" in body
+
+
 def test_task_set_changes_appear_in_the_comment() -> None:
     head = run()
     scores = per_task_scores(head)
