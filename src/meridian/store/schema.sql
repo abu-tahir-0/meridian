@@ -93,6 +93,7 @@ CREATE TABLE trial (
     input_tokens  INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     duration_ms   BIGINT NOT NULL DEFAULT 0,
+    error_cause   TEXT,
     CONSTRAINT trial_unique UNIQUE (run_id, task_slug, trial_index),
     CONSTRAINT trial_outcome_known
         CHECK (outcome IN ('pass', 'fail', 'timeout', 'harness_error')),

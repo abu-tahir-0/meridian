@@ -16,7 +16,14 @@ from typing import Any
 import pytest
 
 from meridian.manifest.build import build_manifest
-from meridian.models.run import Outcome, RunResult, RunStatus, TaskResult, TrialResult
+from meridian.models.run import (
+    ErrorCause,
+    Outcome,
+    RunResult,
+    RunStatus,
+    TaskResult,
+    TrialResult,
+)
 from meridian.store import repo
 from meridian.suites.loader import load_suite
 from tests.conftest import CHECKOUT_SUITE, REPO_ROOT
@@ -111,15 +118,31 @@ def introspect(url: str) -> dict[str, Any]:
     }
 
 
-def run_migrations(url: str) -> None:
-    from alembic import command
+def _alembic_config(url: str) -> Any:
     from alembic.config import Config
 
     config = Config(str(REPO_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(REPO_ROOT / "src/meridian/store/migrations"))
     os.environ["MERIDIAN_DATABASE_URL"] = url
+    return config
+
+
+def run_migrations(url: str, revision: str = "head") -> None:
+    from alembic import command
+
+    config = _alembic_config(url)
     try:
-        command.upgrade(config, "head")
+        command.upgrade(config, revision)
+    finally:
+        os.environ["MERIDIAN_DATABASE_URL"] = ADMIN_URL
+
+
+def downgrade_migrations(url: str, revision: str) -> None:
+    from alembic import command
+
+    config = _alembic_config(url)
+    try:
+        command.downgrade(config, revision)
     finally:
         os.environ["MERIDIAN_DATABASE_URL"] = ADMIN_URL
 
@@ -271,6 +294,78 @@ def test_a_run_round_trips_and_its_scores_are_queryable(scratch_database: str) -
         history = repo.suite_history(connection, "checkout-agent")
         assert history[0]["run_id"] == "run-store"
         assert history[0]["suite_pass_hat_k"] == pytest.approx(0.4)
+
+
+def test_the_error_cause_migration_adds_the_column_to_an_existing_database(
+    scratch_database: str,
+) -> None:
+    import psycopg
+
+    def error_cause_column() -> list[tuple[str, str]]:
+        with psycopg.connect(scratch_database) as connection:
+            return connection.execute(
+                "SELECT data_type, is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'trial' AND column_name = 'error_cause'"
+            ).fetchall()
+
+    run_migrations(scratch_database)
+    downgrade_migrations(scratch_database, "0001")
+    assert error_cause_column() == []
+
+    run_migrations(scratch_database)
+    assert error_cause_column() == [("text", "YES")]
+
+
+def test_a_harness_error_keeps_its_cause_in_the_database(scratch_database: str) -> None:
+    from meridian.config import load_config
+
+    run_migrations(scratch_database)
+    suite = load_suite(CHECKOUT_SUITE)
+    config = load_config(overrides={"execution": {"n_trials": 2, "k": 1}})
+    manifest = build_manifest(
+        suite=suite,
+        config=config,
+        run_id="run-cause",
+        created_unix_ms=1_756_000_000_000,
+        repo_root=Path(REPO_ROOT),
+    )
+    trials = (
+        TrialResult(
+            run_id="run-cause",
+            task_slug="happy-path",
+            trial_index=0,
+            seed=1,
+            outcome=Outcome.PASS,
+        ),
+        TrialResult(
+            run_id="run-cause",
+            task_slug="happy-path",
+            trial_index=1,
+            seed=2,
+            outcome=Outcome.HARNESS_ERROR,
+            error_cause=ErrorCause.SANDBOX,
+            detail="the container image could not be pulled",
+            attempts=2,
+        ),
+    )
+    result = RunResult(
+        run_id="run-cause",
+        suite_slug="checkout-agent",
+        suite_version=1,
+        status=RunStatus.COMPLETE,
+        k=1,
+        n_requested=2,
+        tasks=(TaskResult(task_slug="happy-path", trials=trials),),
+    )
+
+    with repo.connect(scratch_database) as connection:
+        repo.record_run(connection, suite=suite, manifest=manifest, result=result)
+        rows = connection.execute(
+            "SELECT trial_index, outcome, error_cause FROM trial "
+            "WHERE run_id = 'run-cause' ORDER BY trial_index"
+        ).fetchall()
+
+    assert rows == [(0, "pass", None), (1, "harness_error", "sandbox")]
 
 
 def test_an_unreachable_database_is_not_fatal_to_a_run() -> None:
