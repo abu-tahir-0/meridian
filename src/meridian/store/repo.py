@@ -171,8 +171,8 @@ def record_run(
             connection.execute(
                 "INSERT INTO trial (id, tenant_id, run_id, task_slug, trial_index, seed, "
                 "outcome, detail, attempts, cassette_hash, turns, tool_calls, input_tokens, "
-                "output_tokens, duration_ms) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "output_tokens, duration_ms, error_cause) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 "ON CONFLICT (run_id, task_slug, trial_index) DO NOTHING",
                 (
                     _id("trial"),
@@ -190,6 +190,7 @@ def record_run(
                     t.efficiency.input_tokens,
                     t.efficiency.output_tokens,
                     t.efficiency.duration_ms,
+                    None if t.error_cause is None else str(t.error_cause),
                 ),
             )
 
