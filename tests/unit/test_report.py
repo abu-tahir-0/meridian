@@ -126,6 +126,70 @@ def test_the_html_report_names_the_unreliable_and_never_passing_tasks() -> None:
     assert "unreliable" in body
 
 
+def test_the_html_report_names_the_harness_error_causes() -> None:
+    """The rate alone does not say whether the provider or the grader broke."""
+    run = build_run(
+        tasks=(
+            TaskResult(
+                task_slug="flaky",
+                trials=(
+                    TrialResult(
+                        run_id="r",
+                        task_slug="flaky",
+                        trial_index=0,
+                        seed=0,
+                        outcome=Outcome.HARNESS_ERROR,
+                        detail="provider timed out",
+                        error_cause=ErrorCause.MODEL_PROVIDER,
+                    ),
+                    TrialResult(
+                        run_id="r",
+                        task_slug="flaky",
+                        trial_index=1,
+                        seed=1,
+                        outcome=Outcome.HARNESS_ERROR,
+                        detail="grader raised",
+                        error_cause=ErrorCause.GRADER,
+                    ),
+                    TrialResult(
+                        run_id="r",
+                        task_slug="flaky",
+                        trial_index=2,
+                        seed=2,
+                        outcome=Outcome.PASS,
+                    ),
+                ),
+            ),
+        )
+    )
+    body = html_report.render(run)
+    assert "66.7% (grader: 1, model_provider: 1)" in body
+
+
+def test_trial_details_are_escaped() -> None:
+    """A trial detail comes from the agent; a report is not a place to trust it."""
+    run = build_run(
+        tasks=(
+            TaskResult(
+                task_slug="leaky",
+                trials=(
+                    TrialResult(
+                        run_id="r",
+                        task_slug="leaky",
+                        trial_index=0,
+                        seed=0,
+                        outcome=Outcome.FAIL,
+                        detail="bash: <script>alert(1)</script>",
+                    ),
+                ),
+            ),
+        )
+    )
+    body = html_report.render(run)
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
+    assert "<script>alert(1)</script>" not in body
+
+
 def test_a_halted_run_is_marked_partial(html_ok: None = None) -> None:
     body = html_report.render(build_run(status=RunStatus.HALTED_BUDGET))
     assert "halted at its cost cap" in body
