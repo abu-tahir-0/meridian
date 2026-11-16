@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sample from "../public/sample-run.json";
 import baseline from "../public/sample-baseline.json";
 import App from "./App";
@@ -13,6 +13,14 @@ function loaded(data: unknown, name: string) {
 }
 
 describe("App", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("starts empty and invites you to load a run", () => {
     render(<App />);
     expect(screen.getByText("No run loaded yet.")).toBeInTheDocument();
@@ -61,6 +69,65 @@ describe("App", () => {
     const input = screen.getByLabelText("Load a run");
     const file = new File(["{\"hello\": 1}"], "x.json", { type: "application/json" });
     await user.upload(input, file);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not a Meridian run result/);
+  });
+
+
+  it("loads a run from a ?run= link and names it after the file", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(sample),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/?run=https%3A%2F%2Fexample.test%2Fresult.json");
+    render(<App />);
+    expect(await screen.findByTestId("run-title")).toHaveTextContent("result.json");
+    expect(fetchMock).toHaveBeenCalledWith("https://example.test/result.json");
+  });
+
+  it("loads a baseline from a &baseline= link", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify(sample) })),
+    );
+    window.history.replaceState(
+      {},
+      "",
+      "/?run=https%3A%2F%2Fexample.test%2Fresult.json&baseline=https%3A%2F%2Fexample.test%2Fbefore.json",
+    );
+    render(<App />);
+    expect(await screen.findByRole("region", { name: "Run comparison" })).toBeInTheDocument();
+  });
+
+  it("refuses links that are not http or https", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState({}, "", "/?run=javascript%3Aalert(1)");
+    render(<App />);
+    expect(screen.getByRole("alert")).toHaveTextContent(/only http and https/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("explains a linked run that cannot be fetched", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    window.history.replaceState({}, "", "/?run=https%3A%2F%2Fexample.test%2Frun.json");
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/allows cross-origin \(CORS\)/i);
+  });
+
+  it("explains a linked file that is not a run result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => "{\"hello\": 1}" })),
+    );
+    window.history.replaceState({}, "", "/?run=https%3A%2F%2Fexample.test%2Frun.json");
+    render(<App />);
     expect(await screen.findByRole("alert")).toHaveTextContent(/not a Meridian run result/);
   });
 

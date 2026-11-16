@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { compareRuns, passKCurve, summarize } from "./analysis";
 import { Compare } from "./components/Compare";
 import { FileDrop } from "./components/FileDrop";
@@ -6,6 +6,7 @@ import { PassKCurve } from "./components/PassKCurve";
 import { SummaryCards } from "./components/SummaryCards";
 import { TaskTable } from "./components/TaskTable";
 import { TrialHeatmap } from "./components/TrialHeatmap";
+import { resolveRunUrl, runNameFor } from "./link";
 import { parseRun, type RunResult } from "./schema";
 
 interface Loaded {
@@ -21,7 +22,8 @@ export interface AppProps {
 export default function App({ initial }: AppProps) {
   const [primary, setPrimary] = useState<Loaded | undefined>(initial?.primary);
   const [baseline, setBaseline] = useState<Loaded | undefined>(initial?.baseline);
-  const [sampleError, setSampleError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const linkLoaded = useRef(false);
 
   const summary = useMemo(() => (primary ? summarize(primary.run) : null), [primary]);
   const curve = useMemo(
@@ -33,18 +35,58 @@ export default function App({ initial }: AppProps) {
     [primary, baseline],
   );
 
+  useEffect(() => {
+    if (initial || linkLoaded.current) return;
+    linkLoaded.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const links: Array<{ slot: string; raw: string | null; set: (l: Loaded) => void }> = [
+      { slot: "run", raw: params.get("run"), set: setPrimary },
+      { slot: "baseline", raw: params.get("baseline"), set: setBaseline },
+    ];
+    for (const { slot, raw, set } of links) {
+      if (!raw) continue;
+      const url = resolveRunUrl(raw, window.location.href);
+      if (!url) {
+        setLoadError(`Ignoring the ${slot} link: only http and https URLs can be loaded.`);
+        continue;
+      }
+      void loadLinkedRun(slot, url, set);
+    }
+  }, [initial]);
+
   async function loadSample(file: string, set: (l: Loaded) => void, name: string) {
     try {
       const response = await fetch(`./${file}`);
       const parsed = parseRun(await response.text());
       if (parsed.ok) {
         set({ run: parsed.run, name });
-        setSampleError(null);
+        setLoadError(null);
       } else {
-        setSampleError(parsed.error);
+        setLoadError(parsed.error);
       }
     } catch {
-      setSampleError("Could not load the bundled sample.");
+      setLoadError("Could not load the bundled sample.");
+    }
+  }
+
+  async function loadLinkedRun(slot: string, url: URL, set: (l: Loaded) => void) {
+    try {
+      const response = await fetch(url.href);
+      if (!response.ok) {
+        setLoadError(`Could not load the ${slot} from ${url.href}: HTTP ${response.status}.`);
+        return;
+      }
+      const parsed = parseRun(await response.text());
+      if (!parsed.ok) {
+        setLoadError(`The ${slot} at ${url.href} is not a Meridian run result: ${parsed.error}`);
+        return;
+      }
+      set({ run: parsed.run, name: runNameFor(url) });
+      setLoadError(null);
+    } catch {
+      setLoadError(
+        `Could not reach ${url.href} for the ${slot}. Check the link and that the server allows cross-origin (CORS) requests.`,
+      );
     }
   }
 
@@ -69,9 +111,9 @@ export default function App({ initial }: AppProps) {
             Try the sample
           </button>
         </div>
-        {sampleError && (
+        {loadError && (
           <p role="alert" className="bad">
-            {sampleError}
+            {loadError}
           </p>
         )}
       </header>
