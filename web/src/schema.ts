@@ -47,6 +47,9 @@ export const TaskResultSchema = z.object({
 });
 export type TaskResult = z.infer<typeof TaskResultSchema>;
 
+// Zod drops unknown keys by default. That is the forward-compatibility promise:
+// a result written by a newer Meridian still loads here, with the fields this
+// build knows. `schema.test.ts` pins it so a later `.strict()` cannot ship silently.
 export const RunResultSchema = z.object({
   run_id: z.string(),
   suite_slug: z.string(),

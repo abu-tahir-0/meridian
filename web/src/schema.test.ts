@@ -58,6 +58,26 @@ describe("parseRun", () => {
     }
   });
 
+  it("strips unknown fields nested inside a trial's efficiency", () => {
+    const newer = {
+      ...sample,
+      tasks: sample.tasks.map((task) => ({
+        ...task,
+        trials: task.trials.map((trial) => ({
+          ...trial,
+          efficiency: { ...trial.efficiency, future_efficiency_field: 42 },
+        })),
+      })),
+    };
+    const parsed = parseRun(JSON.stringify(newer));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      const trial = parsed.run.tasks[0]?.trials[0];
+      expect(trial?.efficiency).toEqual(sample.tasks[0]?.trials[0]?.efficiency);
+      expect(trial?.efficiency).not.toHaveProperty("future_efficiency_field");
+    }
+  });
+
   it("rejects text that is not JSON", () => {
     const parsed = parseRun("not json {");
     expect(parsed).toEqual({ ok: false, error: "That file is not valid JSON." });
