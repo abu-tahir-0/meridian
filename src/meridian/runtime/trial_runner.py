@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import shutil
 import socket
 import tempfile
@@ -110,6 +111,58 @@ def transcript_tail(state_dir: Path, limit: int = TRANSCRIPT_TAIL_CHARS) -> str:
 def _with_transcript(detail: str, state_dir: Path) -> str:
     tail = transcript_tail(state_dir)
     return f"{detail}; last agent activity:\n{tail}" if tail else detail
+
+
+def _as_int(value: object) -> int:
+    if value is None:
+        return 0
+    if not isinstance(value, (int, float, str)):
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def efficiency_from_transcript(state_dir: Path) -> Efficiency | None:
+    """What a killed agent did, recovered from its own transcript.
+
+    A trial stopped at its deadline never gets to write `result.json`, so its
+    turns, tool calls and tokens would otherwise read zero — indistinguishable
+    from an agent that did nothing. The transcript is appended and flushed as
+    the agent works, so it survives the kill. Returns None when there is no
+    readable transcript, which keeps a missing file from looking like zero work.
+    """
+    try:
+        lines = (state_dir / TRANSCRIPT_RELATIVE).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    turns = tool_calls = input_tokens = output_tokens = 0
+    events = 0
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        events += 1
+        kind = event.get("event")
+        if kind == "model_request":
+            turns += 1
+        elif kind == "command":
+            tool_calls += 1
+        elif kind == "model_reply":
+            input_tokens += _as_int(event.get("input_tokens"))
+            output_tokens += _as_int(event.get("output_tokens"))
+    if events == 0:
+        return None
+    return Efficiency(
+        turns=turns,
+        tool_calls=tool_calls,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
 
 
 def attribute_provider_fault(
@@ -394,7 +447,7 @@ class TrialRunner:
                     state_dir,
                 ),
                 attempts=attempt,
-                efficiency=self._efficiency(adapter_result, started),
+                efficiency=self._efficiency(adapter_result, started, state_dir=state_dir),
                 container_removed=phase.container_removed,
                 started_unix_ms=started,
             )
@@ -701,13 +754,30 @@ class TrialRunner:
 
         return Outcome.PASS, ""
 
-    def _efficiency(self, result: AdapterResult, started_ms: int) -> Efficiency:
-        return Efficiency(
-            turns=result.turns,
-            tool_calls=len(result.tool_calls),
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            duration_ms=_now_ms() - started_ms,
+    def _efficiency(
+        self, result: AdapterResult, started_ms: int, *, state_dir: Path | None = None
+    ) -> Efficiency:
+        duration_ms = _now_ms() - started_ms
+        recorded = efficiency_from_transcript(state_dir) if state_dir is not None else None
+        if recorded is None:
+            return Efficiency(
+                turns=result.turns,
+                tool_calls=len(result.tool_calls),
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                duration_ms=duration_ms,
+            )
+        # A timed-out agent has no result file, so `result` is the empty
+        # placeholder. Prefer whatever the agent did manage to report, and fill
+        # the rest from what it recorded before it was killed.
+        return recorded.model_copy(
+            update={
+                "turns": result.turns or recorded.turns,
+                "tool_calls": len(result.tool_calls) or recorded.tool_calls,
+                "input_tokens": result.input_tokens or recorded.input_tokens,
+                "output_tokens": result.output_tokens or recorded.output_tokens,
+                "duration_ms": duration_ms,
+            }
         )
 
     def _harness_error(

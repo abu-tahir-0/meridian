@@ -114,6 +114,8 @@ def act(state: AgentState) -> AgentState:
             for b in reply
             if isinstance(b, dict) and b.get("type") == "tool_use"
         ],
+        input_tokens=int(usage.get("input_tokens", 0)),
+        output_tokens=int(usage.get("output_tokens", 0)),
     )
     return {
         "messages": [{"role": "assistant", "content": payload.get("content") or []}],
