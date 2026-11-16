@@ -25,6 +25,39 @@ describe("parseRun", () => {
     expect(parseRun(JSON.stringify(old)).ok).toBe(true);
   });
 
+  it("accepts newer results with fields this dashboard does not know", () => {
+    const future = {
+      run_id: "r",
+      suite_slug: "s",
+      suite_version: 1,
+      status: "complete",
+      k: 3,
+      n_requested: 1,
+      added_by_a_later_release: { nested: true },
+      tasks: [
+        {
+          task_slug: "a",
+          task_level_extra: "ignored",
+          trials: [
+            {
+              task_slug: "a",
+              trial_index: 0,
+              outcome: "pass",
+              trial_level_extra: [1, 2, 3],
+              efficiency: { turns: 2, cache_hits: 4 },
+            },
+          ],
+        },
+      ],
+    };
+    const parsed = parseRun(JSON.stringify(future));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.run.tasks[0]?.trials[0]?.outcome).toBe("pass");
+      expect(parsed.run.tasks[0]?.trials[0]?.efficiency.turns).toBe(2);
+    }
+  });
+
   it("rejects text that is not JSON", () => {
     const parsed = parseRun("not json {");
     expect(parsed).toEqual({ ok: false, error: "That file is not valid JSON." });
