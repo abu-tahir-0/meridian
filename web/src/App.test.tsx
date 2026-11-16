@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import sample from "../public/sample-run.json";
 import baseline from "../public/sample-baseline.json";
 import App from "./App";
@@ -13,6 +13,31 @@ function loaded(data: unknown, name: string) {
 }
 
 describe("App", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("applies and remembers an explicit theme", async () => {
+    const user = userEvent.setup();
+    const view = render(<App />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Theme" }), "dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("meridian.dashboard.theme")).toBe("dark");
+
+    view.unmount();
+    render(<App />);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue("dark");
+  });
+
+  it("falls back to the system theme for an unknown stored choice", () => {
+    localStorage.setItem("meridian.dashboard.theme", "sepia");
+    render(<App />);
+    expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue("system");
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+  });
+
   it("starts empty and invites you to load a run", () => {
     render(<App />);
     expect(screen.getByText("No run loaded yet.")).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { compareRuns, passKCurve, summarize } from "./analysis";
 import { Compare } from "./components/Compare";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -8,6 +8,7 @@ import { SummaryCards } from "./components/SummaryCards";
 import { TaskTable } from "./components/TaskTable";
 import { TrialHeatmap } from "./components/TrialHeatmap";
 import { parseRun, type RunResult } from "./schema";
+import { applyTheme, isTheme, readTheme, saveTheme, type Theme } from "./theme";
 
 interface Loaded {
   run: RunResult;
@@ -23,6 +24,12 @@ export default function App({ initial }: AppProps) {
   const [primary, setPrimary] = useState<Loaded | undefined>(initial?.primary);
   const [baseline, setBaseline] = useState<Loaded | undefined>(initial?.baseline);
   const [sampleError, setSampleError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(readTheme);
+
+  useEffect(() => {
+    applyTheme(theme);
+    saveTheme(theme);
+  }, [theme]);
 
   const summary = useMemo(() => (primary ? summarize(primary.run) : null), [primary]);
   const curve = useMemo(
@@ -69,6 +76,19 @@ export default function App({ initial }: AppProps) {
           >
             Try the sample
           </button>
+          <label className="theme-picker">
+            Theme
+            <select
+              value={theme}
+              onChange={(event) => {
+                if (isTheme(event.target.value)) setTheme(event.target.value);
+              }}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
         </div>
         {sampleError && (
           <p role="alert" className="bad">

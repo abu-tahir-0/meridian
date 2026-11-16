@@ -13,8 +13,14 @@
   --bad: #b3261e;
   color-scheme: light dark;
 }
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #14161a;
     --fg: #e7e9ee;
     --muted: #9aa1ae;
@@ -28,6 +34,20 @@
     --good: #5fd08e;
     --bad: #ff8b84;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #14161a;
+  --fg: #e7e9ee;
+  --muted: #9aa1ae;
+  --line: #2a2e36;
+  --card: #1c1f26;
+  --accent: #7c9bff;
+  --pass: #3fbf78;
+  --fail: #ef6a62;
+  --timeout: #e8a64a;
+  --harness: #6f7683;
+  --good: #5fd08e;
+  --bad: #ff8b84;
 }
 * {
   box-sizing: border-box;
@@ -98,9 +118,24 @@ button {
   cursor: pointer;
 }
 button:hover,
-button:focus-visible {
+button:focus-visible,
+select:focus-visible {
   border-color: var(--accent);
   outline: none;
+}
+select {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+}
+.theme-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
 }
 .cards {
   display: grid;
