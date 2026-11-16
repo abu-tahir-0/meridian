@@ -106,6 +106,22 @@ describe("App", () => {
     expect(drop).not.toHaveClass("dragging");
   });
 
+  it("remembers the last run across a reload and can forget it", () => {
+    const first = render(<App initial={{ primary: loaded(sample, "kept.json") }} />);
+    expect(screen.getByTestId("run-title")).toHaveTextContent("kept.json");
+    first.unmount();
+
+    const second = render(<App />);
+    expect(screen.getByTestId("run-title")).toHaveTextContent("kept.json");
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear saved run" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Saved run cleared");
+    second.unmount();
+
+    render(<App />);
+    expect(screen.getByText("No run loaded yet.")).toBeInTheDocument();
+  });
+
   it("loads a real run file from disk", async () => {
     const user = userEvent.setup();
     render(<App />);
