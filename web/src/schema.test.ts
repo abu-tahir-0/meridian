@@ -25,6 +25,29 @@ describe("parseRun", () => {
     expect(parseRun(JSON.stringify(old)).ok).toBe(true);
   });
 
+  it("accepts a newer result with fields this build does not know", () => {
+    const newer = {
+      ...sample,
+      future_run_field: { added_in: "0.9" },
+      tasks: sample.tasks.map((task) => ({
+        ...task,
+        future_task_field: ["a", "b"],
+        trials: task.trials.map((trial) => ({
+          ...trial,
+          future_trial_field: true,
+          efficiency: { ...trial.efficiency, future_efficiency_field: 42 },
+        })),
+      })),
+    };
+    const parsed = parseRun(JSON.stringify(newer));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.run.run_id).toBe(sample.run_id);
+      expect(parsed.run.tasks).toHaveLength(sample.tasks.length);
+      expect(parsed.run.tasks[0]?.trials[0]?.outcome).toBe(sample.tasks[0]?.trials[0]?.outcome);
+    }
+  });
+
   it("rejects text that is not JSON", () => {
     const parsed = parseRun("not json {");
     expect(parsed).toEqual({ ok: false, error: "That file is not valid JSON." });
