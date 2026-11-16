@@ -55,6 +55,7 @@ dev = [
     "pytest-timeout>=2.3",
     "types-pyyaml>=6.0",
     "types-docker>=7.1",
+    "pytest-randomly>=5.1.0",
 ]
 
 [build-system]

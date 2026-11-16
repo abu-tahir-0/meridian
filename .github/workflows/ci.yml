@@ -35,8 +35,8 @@ jobs:
         run: uv run ruff format --check src tests benchmarks
       - name: mypy --strict
         run: uv run mypy
-      - name: unit tests
-        run: uv run pytest -m unit
+      - name: unit tests (random order)
+        run: uv run pytest -m unit -p randomly
 
   web:
     name: web (types, tests, build)
