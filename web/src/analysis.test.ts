@@ -46,6 +46,16 @@ describe("summarize", () => {
     expect(summary.tasks[0]!.passHatK).toBeCloseTo(0.4, 12);
   });
 
+  it("gives each task's pass rate a Wilson interval", () => {
+    const [lo, hi] = summarize(run([task("a", [P, P, P, P, F])])).tasks[0]!.passRateInterval!;
+    expect(lo).toBeCloseTo(0.3755, 3);
+    expect(hi).toBeCloseTo(0.9638, 3);
+  });
+
+  it("has no pass-rate interval when there are no gradeable trials", () => {
+    expect(summarize(run([task("a", [H, H])])).tasks[0]!.passRateInterval).toBeNull();
+  });
+
   it("lowers k when fewer trials were gradeable, and says so", () => {
     const a = summarize(run([task("a", [P, P, H, H, H])])).tasks[0]!;
     expect(a.kUsed).toBe(2);

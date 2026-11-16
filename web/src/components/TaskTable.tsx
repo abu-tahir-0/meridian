@@ -16,6 +16,9 @@ export function TaskTable({ tasks, k }: { tasks: TaskSummary[]; k: number }) {
               <th scope="col" className="num">
                 Graded
               </th>
+              <th scope="col" className="num">
+                95% CI
+              </th>
               <th scope="col" className="num">{`pass@${k}`}</th>
               <th scope="col" className="num">{`pass^${k}`}</th>
               <th scope="col">Notes</th>
@@ -27,6 +30,11 @@ export function TaskTable({ tasks, k }: { tasks: TaskSummary[]; k: number }) {
                 <th scope="row">{task.slug}</th>
                 <td className="num">{task.c}</td>
                 <td className="num">{task.n}</td>
+                <td className="num">
+                  {task.passRateInterval === null
+                    ? "—"
+                    : `[${fmt(task.passRateInterval[0])}, ${fmt(task.passRateInterval[1])}]`}
+                </td>
                 <td className="num">{fmt(task.passAtK)}</td>
                 <td className="num">
                   <strong>{fmt(task.passHatK)}</strong>
