@@ -78,6 +78,61 @@ def test_schema_names_the_one_tool() -> None:
     assert tools.TOOL_SCHEMAS[0]["input_schema"]["required"] == ["command"]
 
 
+def test_the_trial_context_wins_over_the_environment_and_bad_values_are_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MERIDIAN_AGENT_MAX_TURNS", "12")
+    assert tools.agent_limits({})["max_turns"] == 12
+    assert tools.agent_limits({"max_turns": 7})["max_turns"] == 7
+    assert tools.agent_limits({"max_turns": 0})["max_turns"] == 12
+    assert tools.agent_limits({"max_turns": "many"})["max_turns"] == 12
+
+    monkeypatch.delenv("MERIDIAN_AGENT_MAX_TURNS")
+    assert tools.agent_limits({})["max_turns"] == tools.MAX_TURNS
+    assert tools.agent_limits({"request_timeout_seconds": 2.5})["request_timeout_seconds"] == 2.5
+
+
+def test_every_limit_has_a_context_key_and_an_environment_variable() -> None:
+    limits = tools.agent_limits({})
+    assert set(limits) == {
+        "max_turns",
+        "request_timeout_seconds",
+        "max_output_chars",
+        "default_command_timeout_seconds",
+        "max_command_timeout_seconds",
+    }
+    assert all(value > 0 for value in limits.values())
+
+
+def test_the_schema_advertises_the_configured_timeout() -> None:
+    [bash] = tools.tool_schemas(5, 9)
+    description = bash["input_schema"]["properties"]["timeout_seconds"]["description"]
+    assert "at most 9" in description and "default 5" in description
+
+
+def test_run_bash_honours_the_configured_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    seen: dict[str, object] = {}
+
+    def fake(argv: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(argv, 0, b"A" * 500, b"")
+
+    monkeypatch.setattr(tools.subprocess, "run", fake)
+    result = tools.run_bash(
+        "true",
+        workdir=str(tmp_path),
+        timeout_seconds=999,
+        max_timeout_seconds=7,
+        max_output_chars=40,
+    )
+    assert seen["timeout"] == 7, "the model cannot raise the operator's ceiling"
+    assert "characters omitted" in result["output"] and len(result["output"]) < 120
+
+
 # -- the transcript --------------------------------------------------------------------
 
 from terminal_agent import transcript  # noqa: E402

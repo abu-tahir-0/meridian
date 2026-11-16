@@ -22,13 +22,11 @@ from typing import Annotated, Any, TypedDict
 import httpx
 from langgraph.graph import END, StateGraph
 
-from terminal_agent.tools import TOOL_SCHEMAS, format_result, run_bash
+from terminal_agent.tools import agent_limits, format_result, run_bash, tool_schemas
 from terminal_agent.transcript import record
 
 # The proxy substitutes the model the operator chose, so this name is only a label.
 MODEL = os.environ.get("MERIDIAN_FIXTURE_MODEL", "meridian-model")
-MAX_TURNS = 30
-REQUEST_TIMEOUT_SECONDS = 180.0
 # The trial token budget is a ceiling on the whole trial, not on one reply.
 MAX_TOKENS_PER_REPLY = 4096
 
@@ -43,6 +41,7 @@ class AgentState(TypedDict, total=False):
     context: dict[str, Any]
     messages: Annotated[list[dict[str, Any]], _append]
     system: str
+    limits: dict[str, Any]
     turns: int
     tool_calls: Annotated[list[dict[str, Any]], _append]
     input_tokens: int
@@ -56,6 +55,7 @@ def plan(state: AgentState) -> AgentState:
     return {
         "system": (PROMPTS / "system.md").read_text(encoding="utf-8"),
         "messages": [{"role": "user", "content": context["prompt"]}],
+        "limits": agent_limits(context),
         "turns": 0,
         "input_tokens": 0,
         "output_tokens": 0,
@@ -68,6 +68,7 @@ def plan(state: AgentState) -> AgentState:
 def act(state: AgentState) -> AgentState:
     """One model turn, through the proxy."""
     context = state["context"]
+    limits = state.get("limits") or agent_limits(context)
     body = {
         "model": MODEL,
         "max_tokens": min(
@@ -75,7 +76,10 @@ def act(state: AgentState) -> AgentState:
         ),
         "system": state.get("system", ""),
         "messages": state.get("messages", []),
-        "tools": TOOL_SCHEMAS,
+        "tools": tool_schemas(
+            int(limits["default_command_timeout_seconds"]),
+            int(limits["max_command_timeout_seconds"]),
+        ),
     }
     headers = {
         "x-meridian-task": str(context.get("task_slug", "")),
@@ -87,7 +91,9 @@ def act(state: AgentState) -> AgentState:
     asked = time.monotonic()
     record(workdir, "model_request", turn=state.get("turns", 0) + 1)
     try:
-        response = httpx.post(url, json=body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = httpx.post(
+            url, json=body, headers=headers, timeout=float(limits["request_timeout_seconds"])
+        )
     except httpx.HTTPError as exc:
         record(workdir, "model_error", error=f"{type(exc).__name__}: {exc}")
         return {"error": f"model call failed: {exc}", "completed": False}
@@ -127,6 +133,7 @@ def act(state: AgentState) -> AgentState:
 def tools(state: AgentState) -> AgentState:
     """Run every tool call the model made, in order."""
     workdir = str(state["context"]["workdir"])
+    limits = state.get("limits") or agent_limits(state["context"])
     results: list[dict[str, Any]] = []
     recorded: list[dict[str, Any]] = []
     for block in state["messages"][-1].get("content", []):
@@ -141,6 +148,9 @@ def tools(state: AgentState) -> AgentState:
                 arguments["command"],
                 workdir=workdir,
                 timeout_seconds=arguments.get("timeout_seconds"),
+                default_timeout_seconds=int(limits["default_command_timeout_seconds"]),
+                max_timeout_seconds=int(limits["max_command_timeout_seconds"]),
+                max_output_chars=int(limits["max_output_chars"]),
             )
             text, ok = format_result(result), result["error"] is None
             record(
@@ -167,7 +177,8 @@ def tools(state: AgentState) -> AgentState:
 def route(state: AgentState) -> str:
     if state.get("error") or state.get("completed"):
         return "finish"
-    if state.get("turns", 0) >= MAX_TURNS:
+    limits = state.get("limits") or agent_limits(state["context"])
+    if state.get("turns", 0) >= int(limits["max_turns"]):
         return "out_of_turns"
     last = state["messages"][-1]
     wants_tools = any(
@@ -179,7 +190,11 @@ def route(state: AgentState) -> str:
 
 def out_of_turns(state: AgentState) -> AgentState:
     # An agent failure, not a harness one: it had its turns and did not finish.
-    return {"error": f"gave up after {MAX_TURNS} turns", "completed": False}
+    limits = state.get("limits") or agent_limits(state["context"])
+    return {
+        "error": f"gave up after {int(limits['max_turns'])} turns",
+        "completed": False,
+    }
 
 
 def finish(state: AgentState) -> AgentState:
