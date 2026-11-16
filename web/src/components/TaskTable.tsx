@@ -1,10 +1,18 @@
 import type { TaskSummary } from "../analysis";
+import { taskNote, taskTableCsv, taskTableMarkdown } from "../export";
 import { fmt } from "../format";
+import { ExportButtons } from "./ExportButtons";
 
 export function TaskTable({ tasks, k }: { tasks: TaskSummary[]; k: number }) {
   return (
     <section aria-label="Per-task results">
       <h2>Tasks</h2>
+      <ExportButtons
+        label="tasks"
+        filename="meridian-tasks.csv"
+        markdown={taskTableMarkdown(tasks, k)}
+        csv={taskTableCsv(tasks, k)}
+      />
       <div className="scroll">
         <table>
           <thead>
@@ -31,14 +39,7 @@ export function TaskTable({ tasks, k }: { tasks: TaskSummary[]; k: number }) {
                 <td className="num">
                   <strong>{fmt(task.passHatK)}</strong>
                 </td>
-                <td className="muted">
-                  {task.n === 0
-                    ? "no gradeable trials"
-                    : task.kUsed < k
-                      ? `k lowered to ${task.kUsed}: only ${task.n} gradeable`
-                      : ""}
-                  {task.harnessErrors > 0 ? ` ${task.harnessErrors} harness error(s)` : ""}
-                </td>
+                <td className="muted">{taskNote(task, k)}</td>
               </tr>
             ))}
           </tbody>
