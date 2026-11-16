@@ -1,10 +1,18 @@
 import type { Comparison } from "../analysis";
+import { comparisonCsv, comparisonMarkdown } from "../export";
 import { fmt, fmtSigned } from "../format";
+import { ExportButtons } from "./ExportButtons";
 
 export function Compare({ comparison }: { comparison: Comparison }) {
   return (
     <section aria-label="Run comparison">
       <h2>Comparison</h2>
+      <ExportButtons
+        label="comparison"
+        filename="meridian-comparison.csv"
+        markdown={comparisonMarkdown(comparison)}
+        csv={comparisonCsv(comparison)}
+      />
       <p>
         Suite pass^k: <strong>{fmt(comparison.suiteBefore)}</strong> →{" "}
         <strong>{fmt(comparison.suiteAfter)}</strong>{" "}
