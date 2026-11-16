@@ -1,5 +1,5 @@
 import type { ErrorCause, RunResult, TaskResult } from "./schema";
-import { mean, passAtK, passHatK, tInterval, type Interval } from "./stats";
+import { mean, passAtK, passHatK, tInterval, wilsonInterval, type Interval } from "./stats";
 
 export interface TaskSummary {
   slug: string;
@@ -12,6 +12,8 @@ export interface TaskSummary {
   kUsed: number;
   passAtK: number | null;
   passHatK: number | null;
+  /** Wilson interval for the per-task pass rate `c / n`; null with no gradeable trials. */
+  passRateInterval: Interval | null;
 }
 
 export interface RunSummary {
@@ -45,6 +47,7 @@ export function summarizeTask(task: TaskResult, k: number): TaskSummary {
       kUsed: 0,
       passAtK: null,
       passHatK: null,
+      passRateInterval: null,
     };
   }
   const kUsed = Math.min(k, n);
@@ -56,6 +59,7 @@ export function summarizeTask(task: TaskResult, k: number): TaskSummary {
     kUsed,
     passAtK: passAtK(n, c, kUsed),
     passHatK: passHatK(n, c, kUsed),
+    passRateInterval: wilsonInterval(c, n),
   };
 }
 

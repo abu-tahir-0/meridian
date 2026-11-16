@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from meridian.models.run import RunResult, TaskResult
 from meridian.stats.bootstrap import bootstrap_ci
-from meridian.stats.intervals import t_interval
+from meridian.stats.intervals import t_interval, wilson_interval
 from meridian.stats.passk import pass_at_k, pass_hat_k
 
 BAR = "─"
@@ -22,13 +22,21 @@ def _fmt(value: float) -> str:
 def task_row(result: TaskResult, k: int) -> str:
     n, c = result.n, result.c
     if n == 0:
-        return f"{result.task_slug:<24} {'—':>5} {'—':>5} {'—':>8} {'—':>8}   no gradeable trials"
+        return (
+            f"{result.task_slug:<24} {'—':>5} {'—':>5} {'—':>8} {'—':>8} {'—':>16}"
+            "   no gradeable trials"
+        )
     effective_k = min(k, n)
     at_k = pass_at_k(n, c, effective_k)
     hat_k = pass_hat_k(n, c, effective_k)
+    lo, hi = wilson_interval(c, n)
     note = "" if effective_k == k else f"  (k lowered to {effective_k}: only {n} trials)"
     errors = f"  {result.harness_errors} harness error(s)" if result.harness_errors else ""
-    return f"{result.task_slug:<24} {c:>5} {n:>5} {_fmt(at_k):>8} {_fmt(hat_k):>8}{note}{errors}"
+    interval = f"[{_fmt(lo)}, {_fmt(hi)}]"
+    return (
+        f"{result.task_slug:<24} {c:>5} {n:>5} {_fmt(at_k):>8} {_fmt(hat_k):>8}"
+        f" {interval:>16}{note}{errors}"
+    )
 
 
 def render(run: RunResult) -> str:
@@ -40,12 +48,13 @@ def render(run: RunResult) -> str:
         lines.append(f"note: {run.detail}")
     lines.append("")
     lines.append(
-        f"{'task':<24} {'pass':>5} {'n':>5} {'pass@' + str(run.k):>8} {'pass^' + str(run.k):>8}"
+        f"{'task':<24} {'pass':>5} {'n':>5} {'pass@' + str(run.k):>8}"
+        f" {'pass^' + str(run.k):>8} {'95% CI':>16}"
     )
-    lines.append(BAR * 60)
+    lines.append(BAR * 72)
     for task in run.tasks:
         lines.append(task_row(task, run.k))
-    lines.append(BAR * 60)
+    lines.append(BAR * 72)
 
     scored = [t for t in run.tasks if t.n > 0]
     if scored:

@@ -57,6 +57,18 @@ def test_the_table_puts_pass_at_k_beside_pass_hat_k() -> None:
     assert "1.00" in line and "0.40" in line
 
 
+def test_the_table_shows_a_wilson_interval_for_each_task() -> None:
+    """The per-task pass rate is a small binomial sample; say how uncertain it is."""
+    rendered = table.render(build_run())
+    rows = {
+        row.split()[0]: row
+        for row in rendered.splitlines()
+        if row.startswith(("happy-path", "missing-field"))
+    }
+    assert "[0.38, 0.96]" in rows["happy-path"]  # 4 of 5
+    assert "[0.57, 1.00]" in rows["missing-field"]  # 5 of 5
+
+
 def test_the_table_reports_the_interval_and_the_exclusions() -> None:
     rendered = table.render(build_run())
     assert "95% CI (over tasks)" in rendered
