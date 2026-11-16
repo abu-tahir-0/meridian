@@ -29,7 +29,7 @@ import httpx
 from meridian.config import ProxyMode
 from meridian.models.task import TaskDefinition
 from meridian.runtime.isolation import RUN_LABEL
-from meridian.runtime.secrets import has_credential, load_credential
+from meridian.runtime.secrets import ProviderCredential, has_credential, load_credential
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from docker import DockerClient
@@ -154,6 +154,49 @@ def start_stub_provider(
     return container, network_name
 
 
+def proxy_environment(
+    *,
+    mode: ProxyMode,
+    tasks: list[TaskDefinition],
+    run_budget_cents: int | None = None,
+    upstream_base_url: str | None = None,
+    upstream_api: str | None = None,
+    upstream_model: str | None = None,
+    use_stub_provider: bool = False,
+    credential: ProviderCredential | None = None,
+) -> dict[str, str]:
+    """Everything the proxy container learns about the run.
+
+    Replay needs no credential, and the stub provider needs no upstream
+    settings: it is the upstream. A live run gets exactly one credential, under
+    the variable name its provider expects.
+    """
+    environment: dict[str, str] = {
+        "MERIDIAN_PROXY_MODE": str(mode),
+        "MERIDIAN_CASSETTE_DIR": "/cassettes",
+        "MERIDIAN_LIMITS": limits_payload(tasks),
+    }
+    if run_budget_cents is not None:
+        environment["MERIDIAN_RUN_BUDGET_CENTS"] = str(run_budget_cents)
+    if upstream_base_url:
+        environment["MERIDIAN_UPSTREAM_BASE_URL"] = upstream_base_url
+    if upstream_api and not use_stub_provider:
+        environment["MERIDIAN_UPSTREAM_API"] = upstream_api
+    if upstream_model and not use_stub_provider:
+        environment["MERIDIAN_UPSTREAM_MODEL"] = upstream_model
+
+    if mode is not ProxyMode.REPLAY and not use_stub_provider:
+        # The credential exists here and in no other container. Replay never
+        # needs one, which is why CI runs offline and the demo works on a plane.
+        if credential is None:
+            raise ProxyStartError(
+                f"proxy mode {mode} calls the provider, but no credential is set. "
+                f"Replay mode needs none."
+            )
+        environment[credential.env_var] = credential.value
+    return environment
+
+
 def start_proxy(
     client: DockerClient,
     *,
@@ -179,30 +222,25 @@ def start_proxy(
     cassette_dir = Path(cassette_dir).resolve()
     cassette_dir.mkdir(parents=True, exist_ok=True)
 
-    environment: dict[str, str] = {
-        "MERIDIAN_PROXY_MODE": str(mode),
-        "MERIDIAN_CASSETTE_DIR": "/cassettes",
-        "MERIDIAN_LIMITS": limits_payload(tasks),
-    }
-    if run_budget_cents is not None:
-        environment["MERIDIAN_RUN_BUDGET_CENTS"] = str(run_budget_cents)
-    if upstream_base_url:
-        environment["MERIDIAN_UPSTREAM_BASE_URL"] = upstream_base_url
-    if upstream_api and not use_stub_provider:
-        environment["MERIDIAN_UPSTREAM_API"] = upstream_api
-    if upstream_model and not use_stub_provider:
-        environment["MERIDIAN_UPSTREAM_MODEL"] = upstream_model
-
+    credential: ProviderCredential | None = None
     if mode is not ProxyMode.REPLAY and not use_stub_provider:
-        # The credential exists here and in no other container. Replay never
-        # needs one, which is why CI runs offline and the demo works on a plane.
         if not has_credential():
             raise ProxyStartError(
                 f"proxy mode {mode} calls the provider, but no credential is set. "
                 f"Replay mode needs none."
             )
         credential = load_credential()
-        environment[credential.env_var] = credential.value
+
+    environment = proxy_environment(
+        mode=mode,
+        tasks=tasks,
+        run_budget_cents=run_budget_cents,
+        upstream_base_url=upstream_base_url,
+        upstream_api=upstream_api,
+        upstream_model=upstream_model,
+        use_stub_provider=use_stub_provider,
+        credential=credential,
+    )
 
     network = None
     container = None
