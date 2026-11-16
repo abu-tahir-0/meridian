@@ -127,6 +127,92 @@ def test_malformed_tool_arguments_are_surfaced_not_dropped() -> None:
     assert out["content"][0]["input"] == {"_raw_arguments": "{oops"}
 
 
+def test_multiple_tool_results_in_one_user_turn_become_separate_tool_messages() -> None:
+    out = to_openai_request(
+        {
+            "model": "m",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": "t1", "name": "f", "input": {"a": 1}},
+                        {"type": "tool_use", "id": "t2", "name": "g", "input": {}},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "t1", "content": "one"},
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "t2",
+                            "content": [{"type": "text", "text": "two"}],
+                        },
+                    ],
+                },
+            ],
+        }
+    )
+    assert out["messages"][1:] == [
+        {"role": "tool", "tool_call_id": "t1", "content": "one"},
+        {"role": "tool", "tool_call_id": "t2", "content": "two"},
+    ]
+
+
+def test_assistant_reply_with_text_and_tool_calls_keeps_both() -> None:
+    out = to_openai_request(
+        {
+            "model": "m",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "let me check"},
+                        {"type": "tool_use", "id": "t1", "name": "lookup", "input": {"q": "x"}},
+                    ],
+                }
+            ],
+        }
+    )
+    assert out["messages"] == [
+        {
+            "role": "assistant",
+            "content": "let me check",
+            "tool_calls": [
+                {
+                    "id": "t1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": '{"q": "x"}'},
+                }
+            ],
+        }
+    ]
+
+
+def test_empty_assistant_content_translates_to_no_content() -> None:
+    out = to_openai_request({"model": "m", "messages": [{"role": "assistant", "content": []}]})
+    assert out["messages"] == [{"role": "assistant", "content": None}]
+
+
+def test_tool_choice_none_is_forwarded() -> None:
+    out = to_openai_request({**ANTHROPIC_REQUEST, "tool_choice": {"type": "none"}})
+    assert out["tool_choice"] == "none"
+
+
+def test_response_with_empty_content_has_no_blocks() -> None:
+    out = from_openai_response(
+        {"choices": [{"message": {"content": None}, "finish_reason": "stop"}]}
+    )
+    assert out["content"] == []
+
+
+def test_response_without_usage_reports_zero_tokens() -> None:
+    out = from_openai_response(
+        {"choices": [{"message": {"content": "x"}, "finish_reason": "stop"}]}
+    )
+    assert out["usage"] == {"input_tokens": 0, "output_tokens": 0}
+
+
 def test_openai_upstream_requires_a_credential() -> None:
     config = config_from_env(
         {
