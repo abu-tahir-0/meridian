@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,7 +13,9 @@ from meridian.snapshots.build import rewrite_suite_snapshots
 from meridian.snapshots.registry import (
     UnpinnedReferenceError,
     is_digest,
+    read_snapshot_ref,
     require_digest,
+    resolve_digest,
     write_snapshot_ref,
 )
 from meridian.suites.loader import load_suite
@@ -63,6 +67,72 @@ def test_repinning_refuses_a_tag(tmp_path: Path) -> None:
     shutil.copytree(CHECKOUT_SUITE, suite)
     with pytest.raises(UnpinnedReferenceError):
         rewrite_suite_snapshots(suite, "checkout:latest")
+
+
+class _FakeImages:
+    def __init__(self, local: dict[str, str] | None = None) -> None:
+        self.local = dict(local or {})
+        self.pulled: list[str] = []
+
+    def get(self, reference: str) -> SimpleNamespace:
+        if reference not in self.local:
+            raise LookupError(reference)
+        return SimpleNamespace(id=self.local[reference])
+
+    def pull(self, reference: str) -> None:
+        self.pulled.append(reference)
+
+
+class _FakeClient:
+    def __init__(self, local: dict[str, str] | None = None) -> None:
+        self.images = _FakeImages(local)
+
+
+@pytest.mark.unit
+def test_a_local_digest_is_returned_without_pulling() -> None:
+    client = _FakeClient({DIGEST: DIGEST})
+    assert resolve_digest(client, DIGEST) == DIGEST  # type: ignore[arg-type]
+    assert client.images.pulled == []
+
+
+@pytest.mark.unit
+def test_a_missing_digest_is_pulled_by_digest() -> None:
+    client = _FakeClient()
+    assert resolve_digest(client, DIGEST) == DIGEST  # type: ignore[arg-type]
+    assert client.images.pulled == [DIGEST]
+
+
+@pytest.mark.unit
+def test_a_tag_resolves_to_the_local_image_digest() -> None:
+    digest = "sha256:" + "ab" * 32
+    client = _FakeClient({"checkout:latest": digest})
+    assert resolve_digest(client, "checkout:latest") == digest  # type: ignore[arg-type]
+    assert client.images.pulled == []
+
+
+@pytest.mark.unit
+def test_a_tag_whose_image_id_is_not_a_digest_is_rejected() -> None:
+    client = _FakeClient({"checkout:latest": "checkout:latest"})
+    with pytest.raises(UnpinnedReferenceError):
+        resolve_digest(client, "checkout:latest")  # type: ignore[arg-type]
+
+
+@pytest.mark.unit
+def test_the_snapshot_ref_round_trips(tmp_path: Path) -> None:
+    path = write_snapshot_ref(
+        tmp_path, digest=DIGEST, tag="checkout:latest", platform="linux/arm64"
+    )
+    assert read_snapshot_ref(tmp_path) == DIGEST
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "digest": DIGEST,
+        "tag": "checkout:latest",
+        "platform": "linux/arm64",
+    }
+
+
+@pytest.mark.unit
+def test_the_snapshot_ref_is_absent_before_a_build(tmp_path: Path) -> None:
+    assert read_snapshot_ref(tmp_path) is None
 
 
 def test_pinning_handles_quoted_and_bare_digests(tmp_path: Path) -> None:
