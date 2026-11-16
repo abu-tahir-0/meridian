@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { compareRuns, passKCurve, summarize } from "./analysis";
 import { Compare } from "./components/Compare";
 import { FileDrop } from "./components/FileDrop";
@@ -7,6 +7,7 @@ import { SummaryCards } from "./components/SummaryCards";
 import { TaskTable } from "./components/TaskTable";
 import { TrialHeatmap } from "./components/TrialHeatmap";
 import { parseRun, type RunResult } from "./schema";
+import { clearRuns, restoreRun, saveRun } from "./storage";
 
 interface Loaded {
   run: RunResult;
@@ -19,9 +20,23 @@ export interface AppProps {
 }
 
 export default function App({ initial }: AppProps) {
-  const [primary, setPrimary] = useState<Loaded | undefined>(initial?.primary);
-  const [baseline, setBaseline] = useState<Loaded | undefined>(initial?.baseline);
+  // `initial` is explicit control (tests and the bundled samples): when it is
+  // present, do not mix in a run a previous visit left in storage.
+  const [primary, setPrimary] = useState<Loaded | undefined>(() =>
+    initial !== undefined ? initial.primary : (restoreRun("primary") ?? undefined),
+  );
+  const [baseline, setBaseline] = useState<Loaded | undefined>(() =>
+    initial !== undefined ? initial.baseline : (restoreRun("baseline") ?? undefined),
+  );
   const [sampleError, setSampleError] = useState<string | null>(null);
+  const [cleared, setCleared] = useState(false);
+
+  useEffect(() => {
+    if (primary) saveRun("primary", primary);
+  }, [primary]);
+  useEffect(() => {
+    if (baseline) saveRun("baseline", baseline);
+  }, [baseline]);
 
   const summary = useMemo(() => (primary ? summarize(primary.run) : null), [primary]);
   const curve = useMemo(
@@ -40,6 +55,7 @@ export default function App({ initial }: AppProps) {
       if (parsed.ok) {
         set({ run: parsed.run, name });
         setSampleError(null);
+        setCleared(false);
       } else {
         setSampleError(parsed.error);
       }
@@ -57,8 +73,20 @@ export default function App({ initial }: AppProps) {
           your browser; nothing is uploaded.
         </p>
         <div className="toolbar">
-          <FileDrop label="Load a run" onLoad={(run, name) => setPrimary({ run, name })} />
-          <FileDrop label="Load a baseline to compare" onLoad={(run, name) => setBaseline({ run, name })} />
+          <FileDrop
+            label="Load a run"
+            onLoad={(run, name) => {
+              setPrimary({ run, name });
+              setCleared(false);
+            }}
+          />
+          <FileDrop
+            label="Load a baseline to compare"
+            onLoad={(run, name) => {
+              setBaseline({ run, name });
+              setCleared(false);
+            }}
+          />
           <button
             type="button"
             onClick={() => {
@@ -68,7 +96,23 @@ export default function App({ initial }: AppProps) {
           >
             Try the sample
           </button>
+          {(primary || baseline) && (
+            <button
+              type="button"
+              onClick={() => {
+                clearRuns();
+                setCleared(true);
+              }}
+            >
+              Clear saved run
+            </button>
+          )}
         </div>
+        {cleared && (
+          <p role="status" className="muted">
+            Saved run cleared; reloading or opening this page again starts empty.
+          </p>
+        )}
         {sampleError && (
           <p role="alert" className="bad">
             {sampleError}

@@ -1,6 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import sample from "../public/sample-run.json";
 import baseline from "../public/sample-baseline.json";
 import App from "./App";
@@ -13,6 +13,10 @@ function loaded(data: unknown, name: string) {
 }
 
 describe("App", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it("starts empty and invites you to load a run", () => {
     render(<App />);
     expect(screen.getByText("No run loaded yet.")).toBeInTheDocument();
@@ -62,6 +66,22 @@ describe("App", () => {
     const file = new File(["{\"hello\": 1}"], "x.json", { type: "application/json" });
     await user.upload(input, file);
     expect(await screen.findByRole("alert")).toHaveTextContent(/not a Meridian run result/);
+  });
+
+  it("remembers the last run across a reload and can forget it", () => {
+    const first = render(<App initial={{ primary: loaded(sample, "kept.json") }} />);
+    expect(screen.getByTestId("run-title")).toHaveTextContent("kept.json");
+    first.unmount();
+
+    const second = render(<App />);
+    expect(screen.getByTestId("run-title")).toHaveTextContent("kept.json");
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear saved run" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Saved run cleared");
+    second.unmount();
+
+    render(<App />);
+    expect(screen.getByText("No run loaded yet.")).toBeInTheDocument();
   });
 
   it("loads a real run file from disk", async () => {
