@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { compareRuns, passKCurve, summarize } from "./analysis";
 import { Compare } from "./components/Compare";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { FileDrop } from "./components/FileDrop";
 import { PassKCurve } from "./components/PassKCurve";
 import { SummaryCards } from "./components/SummaryCards";
@@ -77,7 +78,9 @@ export default function App({ initial }: AppProps) {
       </header>
 
       {primary && summary ? (
-        <>
+        <ErrorBoundary
+          key={`${primary.name}:${primary.run.run_id}:${baseline?.run.run_id ?? ""}`}
+        >
           <p className="muted" data-testid="run-title">
             {primary.name} — {summary.suiteSlug} · run {summary.runId} · n={primary.run.n_requested}, k=
             {summary.k}
@@ -88,7 +91,7 @@ export default function App({ initial }: AppProps) {
           <TrialHeatmap run={primary.run} />
           <PassKCurve points={curve} />
           {comparison && <Compare comparison={comparison} />}
-        </>
+        </ErrorBoundary>
       ) : (
         <p className="muted">No run loaded yet.</p>
       )}
