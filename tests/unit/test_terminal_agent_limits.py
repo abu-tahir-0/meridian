@@ -102,9 +102,7 @@ def test_act_uses_the_configured_request_timeout_and_tool_schema(
     assert seen["timeout"] == 2.5
     body = seen["json"]
     assert isinstance(body, dict)
-    description = body["tools"][0]["input_schema"]["properties"]["timeout_seconds"][
-        "description"
-    ]
+    description = body["tools"][0]["input_schema"]["properties"]["timeout_seconds"]["description"]
     assert "default 5" in description
     assert result["turns"] == 1 and result["completed"] is True
 
