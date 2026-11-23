@@ -3,8 +3,26 @@ import type { Comparison, TaskSummary } from "./analysis";
 import { comparisonCsv, comparisonMarkdown, taskTableCsv, taskTableMarkdown } from "./export";
 
 const tasks: TaskSummary[] = [
-  { slug: "happy-path", n: 5, c: 4, harnessErrors: 0, kUsed: 3, passAtK: 1, passHatK: 0.5 },
-  { slug: 'quoted, "slug"', n: 0, c: 0, harnessErrors: 2, kUsed: 1, passAtK: null, passHatK: null },
+  {
+    slug: "happy-path",
+    n: 5,
+    c: 4,
+    harnessErrors: 0,
+    kUsed: 3,
+    passAtK: 1,
+    passHatK: 0.5,
+    passRateInterval: [0.38, 0.96],
+  },
+  {
+    slug: 'quoted, "slug"',
+    n: 0,
+    c: 0,
+    harnessErrors: 2,
+    kUsed: 1,
+    passAtK: null,
+    passHatK: null,
+    passRateInterval: null,
+  },
 ];
 
 const comparison: Comparison = {

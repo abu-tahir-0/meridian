@@ -6,7 +6,16 @@ import { Compare } from "./Compare";
 import { TaskTable } from "./TaskTable";
 
 const tasks: TaskSummary[] = [
-  { slug: "happy-path", n: 5, c: 4, harnessErrors: 0, kUsed: 3, passAtK: 1, passHatK: 0.5 },
+  {
+    slug: "happy-path",
+    n: 5,
+    c: 4,
+    harnessErrors: 0,
+    kUsed: 3,
+    passAtK: 1,
+    passHatK: 0.5,
+    passRateInterval: [0.38, 0.96],
+  },
 ];
 
 const comparison: Comparison = {
